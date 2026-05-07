@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>福格行为设计完整工作流</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', 'PingFang SC', Roboto, system-ui, sans-serif;
+      background: #f5f2eb; color: #2e2a24;
+      display: flex; justify-content: center; padding: 1.5rem; min-height: 100vh;
+    }
+    .container { max-width: 900px; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; }
+    .stepper {
+      display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 0.5rem; flex-wrap: wrap;
+    }
+    .step-indicator {
+      display: flex; align-items: center; gap: 0.5rem; cursor: pointer;
+      padding: 0.5rem 0.8rem; border-radius: 2rem; font-weight: 600; font-size: 0.8rem;
+      transition: 0.2s; color: #8b7a60; background: transparent; white-space: nowrap;
+    }
+    .step-indicator.active { background: #dbb44b; color: white; }
+    .step-indicator.completed { color: #5b4c38; background: #f2ede2; }
+    .step-circle {
+      width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      background: #e4d7bc; color: #5b4c38; font-weight: 700; font-size: 0.8rem; transition: 0.2s;
+    }
+    .step-indicator.active .step-circle { background: white; color: #b28b4b; }
+    .step-indicator.completed .step-circle { background: #c7a86b; color: white; }
+    .step-connector { width: 20px; height: 2px; background: #d6ccb8; margin: 0 -2px; }
+    .header { text-align: center; }
+    .header h1 { font-size: 1.9rem; font-weight: 600; color: #3b2e1e; }
+    .card {
+      background: #fffcf4; border-radius: 1.5rem; padding: 1.5rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.05); border: 1px solid #e7dfd0;
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .wish-area { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+    .wish-area label { font-weight: 600; color: #5b4c38; }
+    .wish-area input {
+      flex: 1; padding: 0.65rem 0.9rem; border: 1px solid #d6ccb8; border-radius: 0.9rem;
+      background: #fffdf7; font-size: 0.95rem; outline: none; min-width: 180px;
+    }
+    .btn {
+      background: #c7a86b; border: none; color: white; font-weight: 600;
+      padding: 0.7rem 1.4rem; border-radius: 2rem; font-size: 0.9rem; cursor: pointer; transition: 0.2s;
+      box-shadow: 0 4px 10px rgba(199,168,107,0.3);
+    }
+    .btn:hover { background: #b28b4b; }
+    .btn-outline { background: transparent; border: 1.5px solid #c7a86b; color: #5b4c38; box-shadow: none; }
+    .btn-outline:hover { background: #f3ede3; }
+
+    /* 行为网格 */
+    .grid-wrapper { overflow-x: auto; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.8rem; min-width: 600px; }
+    th { background: #e4d7bc; padding: 0.7rem 0.3rem; font-weight: 600; color: #3b2e1e; border: 1px solid #d6ccb8; }
+    th.row-label { background: #f2ede2; width: 90px; }
+    td {
+      padding: 0.9rem 0.4rem; border: 1px solid #ddd2bd; cursor: pointer; transition: all 0.2s; background: #fffcf4;
+    }
+    td:hover { background: #f7f0e1; transform: scale(1.02); border-color: #c7a86b; }
+    td.selected {
+      background: #f7e3a8; border: 2px solid #cc9f2c; box-shadow: 0 4px 14px rgba(199,168,107,0.4); font-weight: 600;
+    }
+
+    /* 焦点地图 */
+    .mode-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; align-items: center; }
+    .mode-btn {
+      font-size: 0.8rem; padding: 0.4rem 1rem; background: #f2ede2; border: 1px solid #d6ccb8;
+      border-radius: 2rem; cursor: pointer; transition: 0.2s; color: #4e3e28;
+    }
+    .mode-btn.active { background: #dbb44b; color: white; border-color: #b69233; }
+    .prompt-box {
+      background: #efebe2; border-radius: 0.9rem; padding: 0.7rem 1rem; font-size: 0.85rem;
+      color: #4e4333; margin-bottom: 0.8rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
+    }
+    .behavior-list { max-height: 150px; overflow-y: auto; padding-right: 0.3rem; }
+    .behavior-item {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #faf6ef; border-radius: 0.8rem; padding: 0.5rem 1rem; margin-bottom: 0.4rem;
+      border: 1px solid #e7ddcc; font-size: 0.85rem;
+    }
+    .behavior-info { display: flex; gap: 0.8rem; align-items: center; }
+    .badge { background: #e4d7bc; font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 1rem; }
+    .delete-btn { background: none; border: none; color: #b89b7b; font-size: 1.2rem; cursor: pointer; }
+    canvas {
+      display: block; width: 100%; height: auto; background: #fffbf3; border-radius: 1.2rem;
+      border: 1px solid #ddd2bd; touch-action: none; cursor: grab;
+    }
+    .golden-box {
+      margin-top: 0.8rem; background: #fcf7e9; border-radius: 1rem; padding: 0.9rem 1.2rem;
+      border-left: 6px solid #dbb44b;
+    }
+    .toggle-ctrl { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin-top: 0.4rem; }
+
+    /* 能力链 */
+    .chain-dimensions { display: flex; flex-direction: column; gap: 0.8rem; }
+    .dimension {
+      display: flex; align-items: center; gap: 0.8rem; background: #faf6ef; border-radius: 0.9rem;
+      padding: 0.6rem 1rem; border: 1px solid #e7ddcc;
+    }
+    .dim-icon { font-size: 1.4rem; width: 36px; text-align: center; }
+    .dim-info { flex: 1; }
+    .dim-label { font-weight: 600; color: #4e3e28; font-size: 0.9rem; }
+    .dim-question { font-size: 0.75rem; color: #8b7a60; margin-top: 0.1rem; }
+    .dim-slider { flex: 2; display: flex; align-items: center; gap: 0.5rem; }
+    .dim-slider input[type="range"] { flex: 1; accent-color: #c7a86b; }
+    .dim-value { min-width: 32px; text-align: center; font-weight: 600; font-size: 0.9rem; color: #5b4c38; background: #f3ede3; border-radius: 0.6rem; padding: 0.2rem 0.4rem; }
+    .chain-visual {
+      display: flex; align-items: center; justify-content: center; gap: 0; margin: 1rem 0;
+    }
+    .chain-link { position: relative; width: 65px; text-align: center; transition: all 0.3s; }
+    .link-bar { height: 10px; background: #c7a86b; border-radius: 5px; margin: 0 auto 0.3rem; transition: width 0.3s, background 0.3s; }
+    .link-label { font-size: 0.7rem; font-weight: 600; color: #5b4c38; }
+    .link-connector { width: 18px; height: 3px; background: #d6ccb8; border-radius: 2px; margin: 0 -6px; }
+    .result-box {
+      background: #fcf7e9; border-radius: 1rem; padding: 1rem 1.2rem; border-left: 6px solid #dbb44b; margin-top: 1rem; display: none;
+    }
+    .result-box.visible { display: block; }
+
+    /* 微习惯配方 - 恢复独立版样式 */
+    .step-title {
+      font-size: 1rem; font-weight: 600; color: #5b4c38; margin-bottom: 0.6rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .step-number {
+      background: #c7a86b; color: white; width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
+    }
+    .field-label {
+      display: block; font-weight: 500; color: #5b4c38; margin-bottom: 0.3rem; font-size: 0.9rem;
+    }
+    .recipe-select {
+      width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #d6ccb8; border-radius: 0.9rem;
+      background: #fffdf7; font-size: 0.9rem; outline: none;
+    }
+    .golden-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.3rem; }
+    .golden-chip {
+      background: #f7e3a8; border: 1px solid #cc9f2c; border-radius: 2rem; padding: 0.3rem 0.9rem;
+      font-size: 0.85rem; cursor: pointer; color: #3b2e1e; transition: 0.2s;
+    }
+    .golden-chip:hover { background: #e4ce85; }
+    .radio-group { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.3rem; }
+    .radio-option {
+      background: #f3ede3; border: 1px solid #d6ccb8; border-radius: 2rem; padding: 0.4rem 0.9rem;
+      font-size: 0.85rem; cursor: pointer; transition: 0.2s; color: #4e3e28;
+    }
+    .radio-option.selected { background: #dbb44b; color: white; border-color: #b69233; }
+    .custom-input { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+    .custom-input input {
+      flex: 1; padding: 0.6rem 0.8rem; border: 1px solid #d6ccb8; border-radius: 0.9rem;
+      background: #fffdf7; font-size: 0.9rem; outline: none;
+    }
+    .recipe-list { margin-top: 1rem; }
+    .recipe-item {
+      background: #faf7f0; border-radius: 0.9rem; padding: 0.8rem 1rem; margin-bottom: 0.5rem;
+      border: 1px solid #ddd2bd; display: flex; align-items: flex-start; gap: 0.8rem; font-size: 0.9rem;
+    }
+    .recipe-text { flex: 1; line-height: 1.5; }
+    .ability-chain-hint {
+      background: #fdf5e6; border-radius: 0.6rem; padding: 0.5rem 0.8rem;
+      font-size: 0.8rem; color: #c0392b; margin: 0.8rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎯 福格行为设计完整工作流</h1>
+      <p>行为网格 → 焦点地图 → 能力链 → 微习惯配方</p>
+    </div>
+
+    <div class="stepper" id="stepper">
+      <div class="step-indicator active" data-step="1"><div class="step-circle">1</div>行为网格</div>
+      <div class="step-connector"></div>
+      <div class="step-indicator" data-step="2"><div class="step-circle">2</div>焦点地图</div>
+      <div class="step-connector"></div>
+      <div class="step-indicator" data-step="3"><div class="step-circle">3</div>能力链</div>
+      <div class="step-connector"></div>
+      <div class="step-indicator" data-step="4"><div class="step-circle">4</div>微习惯配方</div>
+    </div>
+
+    <!-- 面板1：行为网格 -->
+    <div class="card panel active" id="panel1">
+      <div class="wish-area">
+        <label>✨ 愿望</label>
+        <input type="text" class="wish-sync" id="wish1" placeholder="例如：提升睡眠质量" value="提升睡眠质量">
+      </div>
+      <p style="margin-bottom:0.8rem;">点击一个格子，定义你想改变的行为类型。</p>
+      <div class="grid-wrapper">
+        <table id="behaviorGrid">
+          <thead><tr><th class="row-label"></th><th>养成新习惯</th><th>戒除旧习惯</th><th>增加某项行为</th><th>减少某项行为</th><th>维持某项行为</th></tr></thead>
+          <tbody>
+            <tr><th class="row-label">只做一次</th><td data-type="dot-new">单次新行动</td><td data-type="dot-stop">一次性戒除</td><td data-type="dot-increase">一次性增加</td><td data-type="dot-decrease">一次性减少</td><td data-type="dot-maintain">一次性维持</td></tr>
+            <tr><th class="row-label">持续一段时间</th><td data-type="span-new">短期新习惯</td><td data-type="span-stop">短期戒除</td><td data-type="span-increase">短期增加</td><td data-type="span-decrease">短期减少</td><td data-type="span-maintain">短期维持</td></tr>
+            <tr><th class="row-label">永久改变</th><td data-type="perm-new">永久新习惯</td><td data-type="perm-stop">永久戒除</td><td data-type="perm-increase">永久增加</td><td data-type="perm-decrease">永久减少</td><td data-type="perm-maintain">永久维持</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="gridDesc" style="font-size:0.9rem; margin-bottom:1rem;"></div>
+      <button class="btn" id="goToStep2" style="display:none;">进入下一步：焦点地图 →</button>
+    </div>
+
+    <!-- 面板2：焦点地图 -->
+    <div class="card panel" id="panel2">
+      <div class="wish-area">
+        <label>✨ 愿望</label>
+        <input type="text" class="wish-sync" id="wish2" placeholder="例如：提升睡眠质量">
+      </div>
+      <div style="display:flex; gap:0.8rem; margin-bottom:1rem; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:2; min-width:160px;"><input type="text" id="behaviorInput" placeholder="输入行为，如“睡前手机放客厅”" style="width:100%; padding:0.65rem; border:1px solid #d6ccb8; border-radius:0.9rem; background:#fffdf7;"></div>
+        <button class="btn" id="addBtn">➕ 添加行为</button>
+      </div>
+      <div class="mode-bar">
+        <button class="mode-btn active" data-mode="free">自由模式</button>
+        <button class="mode-btn" data-mode="guided">引导模式</button>
+      </div>
+      <div class="prompt-box" id="promptBox"><span>💡 纵轴：影响力 &nbsp; ✋ 横轴：可行性</span></div>
+      <div class="behavior-list" id="behaviorListContainer"><p style="color:#b7a78a;">暂无行为</p></div>
+      <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+        <button class="btn btn-outline" id="resetBtn">🗑️ 清空全部</button>
+        <button class="btn btn-outline" id="undoBtn">↩️ 撤销</button>
+      </div>
+      <div style="margin-top:1.2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span>↑ 影响力 &nbsp; 可行性 →</span>
+          <div class="toggle-ctrl"><input type="checkbox" id="focusGoldenCheck"><label>🌟 只突出黄金行为</label></div>
+        </div>
+        <canvas id="focusCanvas" width="550" height="420"></canvas>
+        <div class="golden-box"><h3>🏆 当前黄金行为</h3><ul id="goldenList"><li>暂无</li></ul></div>
+      </div>
+      <button class="btn" style="margin-top:1rem;" id="goToStep3">进入下一步：能力链诊断 →</button>
+    </div>
+
+    <!-- 面板3：能力链 -->
+    <div class="card panel" id="panel3">
+      <div class="wish-area">
+        <label>✨ 愿望</label>
+        <input type="text" class="wish-sync" id="wish3" placeholder="例如：提升睡眠质量">
+      </div>
+      <div class="field" style="margin-bottom:1rem;">
+        <label class="field-label">🔬 选择要诊断的行为</label>
+        <div class="golden-chips" id="abilityChainChips"></div>
+        <input type="text" id="chainBehaviorInput" placeholder="或手动输入行为" style="margin-top:0.5rem; width:100%; padding:0.65rem; border:1px solid #d6ccb8; border-radius:0.9rem; background:#fffdf7;">
+      </div>
+      <p style="color:#5b4c38; font-size:0.85rem;">为每个维度评分（1=非常困难，10=完全没问题）</p>
+      <div class="chain-dimensions" id="dimensionsContainer"></div>
+      <div class="chain-visual" id="chainVisual"></div>
+      <div class="result-box" id="resultBox">
+        <h3 id="resultTitle">📌 最薄弱环节</h3>
+        <p id="resultDesc"></p>
+        <ul class="suggestion-list" id="suggestionList"></ul>
+      </div>
+      <div style="display:flex; gap:0.8rem; margin-top:1rem;">
+        <button class="btn" id="diagnoseBtn">🔍 诊断</button>
+        <button class="btn btn-outline" id="goToStep4">进入下一步：微习惯配方 →</button>
+      </div>
+    </div>
+
+    <!-- 面板4：微习惯配方（UI已优化） -->
+    <div class="card panel" id="panel4">
+      <div class="wish-area">
+        <label>✨ 愿望</label>
+        <input type="text" class="wish-sync" id="wish4" placeholder="例如：提升睡眠质量">
+      </div>
+      <p style="margin-bottom:0.8rem; color:#5b4c38;">基于黄金行为和能力链诊断，设计具体配方。</p>
+
+      <div class="step-title"><span class="step-number">1</span> 锚点时刻</div>
+      <div class="field" style="margin-bottom:0.8rem;">
+        <label class="field-label">分类</label>
+        <select id="anchorCategory" class="recipe-select">
+          <option value="morning">🌅 晨间</option>
+          <option value="midday">☀️ 午间</option>
+          <option value="evening">🌙 晚间</option>
+          <option value="commute">🚗 通勤</option>
+          <option value="work">💼 工作</option>
+          <option value="other">✨ 其他</option>
+        </select>
+      </div>
+      <div class="field" style="margin-bottom:0.8rem;">
+        <label class="field-label">具体锚点</label>
+        <select id="anchorSelect" class="recipe-select"></select>
+      </div>
+      <div class="custom-input">
+        <input type="text" id="customAnchor" placeholder="或输入自定义锚点，如“放下手机”">
+      </div>
+
+      <div class="step-title" style="margin-top:1.5rem;"><span class="step-number">2</span> 微行为（可点选黄金行为）</div>
+      <div class="golden-chips" id="recipeChips"></div>
+      <div class="custom-input">
+        <input type="text" id="tinyBehavior" placeholder="或输入自定义微行为">
+      </div>
+      <div id="abilitySuggestionHint" class="ability-chain-hint"></div>
+
+      <div class="step-title" style="margin-top:1.5rem;"><span class="step-number">3</span> 庆祝方式</div>
+      <div class="radio-group" id="celebrationOptions">
+        <div class="radio-option selected" data-value="对自己说‘我真棒！’">说“我真棒！”</div>
+        <div class="radio-option" data-value="在心里放烟花">放烟花</div>
+        <div class="radio-option" data-value="微笑一下">微笑</div>
+        <div class="radio-option" data-value="握拳庆祝">握拳庆祝</div>
+        <div class="radio-option" data-value="做个胜利手势">胜利手势</div>
+      </div>
+      <div class="custom-input">
+        <input type="text" id="customCelebration" placeholder="或输入自定义庆祝，如“哼一段小曲”">
+      </div>
+
+      <div style="margin-top:1.5rem; display:flex; gap:0.8rem;">
+        <button class="btn" id="generateRecipeBtn">✨ 生成配方</button>
+        <button class="btn btn-outline" id="clearRecipesBtn">🗑️ 清空配方</button>
+      </div>
+
+      <div class="recipe-list" id="recipeList">
+        <p style="color:#b7a78a; text-align:center; padding:0.5rem;">还没有配方，来创建第一个吧！</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // 全局状态
+      let currentStep = 1;
+      const wishInputs = document.querySelectorAll('.wish-sync');
+      wishInputs.forEach(input => {
+        input.addEventListener('input', () => {
+          const val = input.value;
+          wishInputs.forEach(inp => { if (inp !== input) inp.value = val; });
+          localStorage.setItem('fg_wish', val);
+          if (typeof updatePrompt === 'function') updatePrompt();
+        });
+      });
+
+      const stepIndicators = document.querySelectorAll('.step-indicator');
+      const panels = ['panel1','panel2','panel3','panel4'].map(id => document.getElementById(id));
+
+      function goToStep(step) {
+        currentStep = step;
+        stepIndicators.forEach((el, i) => {
+          el.classList.remove('active','completed');
+          if (i+1 === step) el.classList.add('active');
+          else if (i+1 < step) el.classList.add('completed');
+        });
+        panels.forEach((p, i) => p.classList.toggle('active', i+1 === step));
+        if (step === 2) { syncWish(); drawFocusMap(); }
+        if (step === 3) { syncWish(); populateAbilityChainChips(); }
+        if (step === 4) { syncWish(); populateRecipeChips(); showAbilityHint(); }
+      }
+      stepIndicators.forEach(el => el.addEventListener('click', () => goToStep(parseInt(el.dataset.step))));
+
+      function syncWish() {
+        const wish = document.getElementById('wish1').value;
+        document.querySelectorAll('.wish-sync').forEach(inp => inp.value = wish);
+      }
+
+      // ---------- 步骤1：行为网格 ----------
+      let gridSelection = null;
+      const gridDesc = document.getElementById('gridDesc');
+      const goToStep2Btn = document.getElementById('goToStep2');
+      document.getElementById('behaviorGrid').addEventListener('click', e => {
+        const td = e.target.closest('td');
+        if (!td) return;
+        document.querySelectorAll('#behaviorGrid td.selected').forEach(t => t.classList.remove('selected'));
+        td.classList.add('selected');
+        gridSelection = { type: td.dataset.type, label: td.innerText.trim() };
+        gridDesc.innerHTML = `<strong>已选：${gridSelection.label}</strong>`;
+        goToStep2Btn.style.display = 'inline-flex';
+        localStorage.setItem('fg_grid', JSON.stringify({wish: document.getElementById('wish1').value, selection: gridSelection}));
+      });
+      goToStep2Btn.addEventListener('click', () => goToStep(2));
+
+      (function loadGrid() {
+        const saved = localStorage.getItem('fg_grid');
+        if (saved) {
+          try {
+            const data = JSON.parse(saved);
+            if (data.selection?.type) {
+              const td = document.querySelector(`#behaviorGrid td[data-type="${data.selection.type}"]`);
+              if (td) { td.classList.add('selected'); gridSelection = data.selection; gridDesc.innerHTML = `<strong>已选：${gridSelection.label}</strong>`; goToStep2Btn.style.display = 'inline-flex'; }
+            }
+            if (data.wish) document.getElementById('wish1').value = data.wish;
+          } catch(e){}
+        }
+      })();
+
+      // ---------- 步骤2：焦点地图 ----------
+      let behaviors = [], historyStack = [];
+      const THRESHOLD = 6, MARGIN = {top:35,right:30,bottom:45,left:55};
+      let mapMode = 'free', guidedStep = 0, focusGolden = false;
+      const canvas = document.getElementById('focusCanvas'), ctx = canvas.getContext('2d');
+
+      function plotSize() { return { width: canvas.width - MARGIN.left - MARGIN.right, height: canvas.height - MARGIN.top - MARGIN.bottom }; }
+      function xFromFeas(f,w) { return MARGIN.left + ((f-1)/9)*w; }
+      function yFromImpact(i,h) { return MARGIN.top + h - ((i-1)/9)*h; }
+      function feasFromX(x,w) { return Math.min(10, Math.max(1, ((x-MARGIN.left)/w)*9+1)); }
+      function impactFromY(y,h) { return Math.min(10, Math.max(1, 10-((y-MARGIN.top)/h)*9)); }
+
+      function drawFocusMap() {
+        const {width, height} = plotSize();
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        const xTh = xFromFeas(THRESHOLD,width), yTh = yFromImpact(THRESHOLD,height);
+        const alpha = focusGolden ? 0.15 : 0.3;
+        ctx.fillStyle = `rgba(230,210,180,${alpha})`; ctx.fillRect(MARGIN.left,MARGIN.top,xTh-MARGIN.left,yTh-MARGIN.top);
+        ctx.fillStyle = `rgba(230,200,100,${alpha+0.1})`; ctx.fillRect(xTh,MARGIN.top,MARGIN.left+width-xTh,yTh-MARGIN.top);
+        ctx.fillStyle = `rgba(210,210,210,${alpha})`; ctx.fillRect(MARGIN.left,yTh,xTh-MARGIN.left,MARGIN.top+height-yTh);
+        ctx.fillStyle = `rgba(190,210,170,${alpha})`; ctx.fillRect(xTh,yTh,MARGIN.left+width-xTh,MARGIN.top+height-yTh);
+        ctx.strokeStyle='#c4b394'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(MARGIN.left,MARGIN.top+height); ctx.lineTo(MARGIN.left+width,MARGIN.top+height); ctx.moveTo(MARGIN.left,MARGIN.top); ctx.lineTo(MARGIN.left,MARGIN.top+height); ctx.stroke();
+        ctx.strokeStyle='#a09170'; ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(xTh,MARGIN.top); ctx.lineTo(xTh,MARGIN.top+height); ctx.moveTo(MARGIN.left,yTh); ctx.lineTo(MARGIN.left+width,yTh); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle='#6b5e4f'; ctx.font='11px "PingFang SC"'; ctx.textAlign='center'; ctx.fillText('可行性 →',MARGIN.left+width/2,MARGIN.top+height+30);
+        ctx.save(); ctx.translate(MARGIN.left-40,MARGIN.top+height/2); ctx.rotate(-Math.PI/2); ctx.fillText('影响力 →',0,0); ctx.restore();
+        ctx.font='italic 10px "PingFang SC"'; ctx.fillStyle='#947f5e';
+        ctx.fillText('想做但难',MARGIN.left+(xTh-MARGIN.left)/2,MARGIN.top+(yTh-MARGIN.top)/2);
+        ctx.fillText('✨黄金行为',xTh+(MARGIN.left+width-xTh)/2,MARGIN.top+(yTh-MARGIN.top)/2);
+        ctx.fillText('低优先',MARGIN.left+(xTh-MARGIN.left)/2,yTh+(MARGIN.top+height-yTh)/2);
+        ctx.fillText('可做不急',xTh+(MARGIN.left+width-xTh)/2,yTh+(MARGIN.top+height-yTh)/2);
+        behaviors.forEach(b => {
+          const x = xFromFeas(b.feasibility,width), y = yFromImpact(b.impact,height);
+          const isGold = b.impact>=THRESHOLD && b.feasibility>=THRESHOLD;
+          ctx.save(); ctx.globalAlpha = focusGolden ? (isGold?1:0.25) : 1;
+          const cardW = Math.max(ctx.measureText(b.text).width+20,60), cardH=26;
+          ctx.shadowColor='rgba(0,0,0,0.15)'; ctx.shadowBlur=6; ctx.shadowOffsetX=1; ctx.shadowOffsetY=2;
+          ctx.beginPath(); const cx=x-cardW/2, cy=y-cardH/2, r=7;
+          ctx.moveTo(cx+r,cy); ctx.lineTo(cx+cardW-r,cy); ctx.quadraticCurveTo(cx+cardW,cy,cx+cardW,cy+r); ctx.lineTo(cx+cardW,cy+cardH-r); ctx.quadraticCurveTo(cx+cardW,cy+cardH,cx+cardW-r,cy+cardH); ctx.lineTo(cx+r,cy+cardH); ctx.quadraticCurveTo(cx,cy+cardH,cx,cy+cardH-r); ctx.lineTo(cx,cy+r); ctx.quadraticCurveTo(cx,cy,cx+r,cy); ctx.closePath();
+          ctx.fillStyle = isGold?'#f7e3a8':'#e8e0d5'; ctx.fill(); ctx.strokeStyle=isGold?'#cc9f2c':'#b7a992'; ctx.lineWidth=1.5; ctx.stroke();
+          ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.font='bold 10px "PingFang SC"'; ctx.fillStyle='#2e2a24'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(b.text,x,y);
+          ctx.restore();
+        });
+      }
+
+      function renderLists() {
+        const container = document.getElementById('behaviorListContainer');
+        container.innerHTML = behaviors.length ? behaviors.map(b => `<div class="behavior-item"><div class="behavior-info"><strong>${escapeHtml(b.text)}</strong> <span class="badge">影响${b.impact.toFixed(1)}</span> <span class="badge">可行${b.feasibility.toFixed(1)}</span></div><button class="delete-btn" data-id="${b.id}">✕</button></div>`).join('') : '<p style="color:#b7a78a;">暂无行为</p>';
+        const golds = behaviors.filter(b => b.impact>=THRESHOLD && b.feasibility>=THRESHOLD);
+        document.getElementById('goldenList').innerHTML = golds.length ? golds.map(b => `<li>${escapeHtml(b.text)}</li>`).join('') : '<li>暂无</li>';
+        document.querySelectorAll('#behaviorListContainer .delete-btn').forEach(btn => btn.addEventListener('click', e => {
+          behaviors = behaviors.filter(b => b.id !== e.target.dataset.id);
+          saveBehaviors(); drawFocusMap(); renderLists();
+        }));
+      }
+      function escapeHtml(s) { return String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[m]); }
+      function saveBehaviors() { localStorage.setItem('fg_behaviors', JSON.stringify(behaviors)); }
+      function loadBehaviors() {
+        try { const saved = localStorage.getItem('fg_behaviors'); if (saved) behaviors = JSON.parse(saved); if (!behaviors.length) behaviors = [{id:'1',text:'睡前阅读10分钟',impact:7.2,feasibility:8.1},{id:'2',text:'晨跑5公里',impact:9.0,feasibility:2.3},{id:'3',text:'喝一杯温水',impact:4.5,feasibility:9.7},{id:'4',text:'写感恩日记',impact:7.5,feasibility:6.0}]; } catch(e) { behaviors = []; }
+      }
+
+      document.getElementById('addBtn').addEventListener('click', () => {
+        const text = document.getElementById('behaviorInput').value.trim();
+        if (!text) return;
+        behaviors.push({id:Date.now().toString(), text, impact:5.5, feasibility:5.5});
+        saveBehaviors(); drawFocusMap(); renderLists(); document.getElementById('behaviorInput').value = '';
+      });
+      document.getElementById('resetBtn').addEventListener('click', () => { if(behaviors.length && confirm('清空？')) { behaviors=[]; saveBehaviors(); drawFocusMap(); renderLists(); } });
+      document.getElementById('undoBtn').addEventListener('click', () => {
+        if(historyStack.length>1) { historyStack.pop(); behaviors=JSON.parse(JSON.stringify(historyStack[historyStack.length-1])); saveBehaviors(); drawFocusMap(); renderLists(); }
+      });
+
+      function updatePrompt() {
+        const wish = document.getElementById('wish2').value;
+        const box = document.getElementById('promptBox');
+        if (mapMode==='guided') {
+          if (guidedStep===0) box.innerHTML = `<span>⬆️ <b>第一回合：影响力</b> —— 上下拖拽，评估对“${wish}”的帮助。 <button id="nextStepBtn" style="margin-left:8px; font-size:0.75rem; padding:0.2rem 0.8rem; background:#c7a86b; border:none; color:white; border-radius:1rem;">进入第二回合 →</button></span>`;
+          else box.innerHTML = `<span>↔️ <b>第二回合：可行性</b> —— 左右拖拽。 <button id="backStepBtn" style="margin-left:8px; font-size:0.75rem; padding:0.2rem 0.8rem; background:#a09170; border:none; color:white; border-radius:1rem;">← 返回第一回合</button></span>`;
+          document.getElementById('nextStepBtn')?.addEventListener('click', ()=>{ guidedStep=1; updatePrompt(); });
+          document.getElementById('backStepBtn')?.addEventListener('click', ()=>{ guidedStep=0; updatePrompt(); });
+        } else {
+          box.innerHTML = '<span>💡 纵轴：影响力 &nbsp; ✋ 横轴：可行性</span>';
+        }
+      }
+      document.querySelectorAll('.mode-btn').forEach(btn => btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active'); mapMode = btn.dataset.mode; guidedStep=0; updatePrompt(); drawFocusMap();
+      }));
+      let dragId = null;
+      canvas.addEventListener('pointerdown', e => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX-rect.left)*(canvas.width/rect.width), my = (e.clientY-rect.top)*(canvas.height/rect.height);
+        const {width, height} = plotSize();
+        for (let i=behaviors.length-1; i>=0; i--) {
+          const b = behaviors[i];
+          if (Math.abs(mx - xFromFeas(b.feasibility,width))<35 && Math.abs(my - yFromImpact(b.impact,height))<22) {
+            dragId = b.id; canvas.setPointerCapture(e.pointerId); e.preventDefault(); return;
+          }
+        }
+      });
+      canvas.addEventListener('pointermove', e => {
+        if (!dragId) return; e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX-rect.left)*(canvas.width/rect.width), my = (e.clientY-rect.top)*(canvas.height/rect.height);
+        const {width, height} = plotSize();
+        const b = behaviors.find(b=>b.id===dragId); if(!b) return;
+        if (mapMode==='guided') { if(guidedStep===0) b.impact = impactFromY(my,height); else b.feasibility = feasFromX(mx,width); }
+        else { b.feasibility = feasFromX(mx,width); b.impact = impactFromY(my,height); }
+        b.feasibility = Math.min(10,Math.max(1,b.feasibility)); b.impact = Math.min(10,Math.max(1,b.impact));
+        saveBehaviors(); drawFocusMap(); renderLists();
+      });
+      canvas.addEventListener('pointerup', () => { if(dragId){ dragId=null; saveBehaviors(); } });
+      document.getElementById('focusGoldenCheck').addEventListener('change', e => { focusGolden = e.target.checked; drawFocusMap(); });
+      document.getElementById('goToStep3').addEventListener('click', () => goToStep(3));
+
+      // ---------- 步骤3：能力链 ----------
+      const dimensions = [
+        {key:'time', label:'时间', icon:'⏱️', question:'我有足够的时间去做这件事吗？'},
+        {key:'money', label:'资金', icon:'💰', question:'我需要为此花钱吗？'},
+        {key:'physical', label:'体力', icon:'💪', question:'它需要我付出很多体力吗？'},
+        {key:'mental', label:'脑力', icon:'🧠', question:'它需要很多脑力或创意吗？'},
+        {key:'routine', label:'日程', icon:'📅', question:'它能融入我现有的生活节奏吗？'}
+      ];
+      const defaultChainScores = { time:5, money:7, physical:5, mental:5, routine:5 };
+      let chainScores = {...defaultChainScores};
+      const suggestions = {
+        time: ['把行为缩小到几分钟即可完成','安排在已有习惯的间隙','提前准备物品减少启动时间'],
+        money: ['寻找免费替代方案','先试用再投入','拆分大额支出'],
+        physical: ['选择精力充沛时段','分解为小段中间休息','从极低强度开始'],
+        mental: ['提前做模板或清单','设置固定流程','在精力最旺盛时处理'],
+        routine: ['嵌入现有日程紧接锚点','重新设计环境','降低频率逐步适应']
+      };
+
+      function populateAbilityChainChips() {
+        const golds = behaviors.filter(b => b.impact>=THRESHOLD && b.feasibility>=THRESHOLD);
+        const container = document.getElementById('abilityChainChips');
+        container.innerHTML = golds.length ? golds.map(b => `<span class="golden-chip" data-behavior="${escapeHtml(b.text)}">${escapeHtml(b.text)}</span>`).join('') : '<span style="color:#b7a78a;">暂无黄金行为，请手动输入</span>';
+        document.querySelectorAll('#abilityChainChips .golden-chip').forEach(chip => chip.addEventListener('click', () => {
+          document.getElementById('chainBehaviorInput').value = chip.dataset.behavior;
+        }));
+      }
+
+      function renderChainDimensions() {
+        const container = document.getElementById('dimensionsContainer');
+        container.innerHTML = dimensions.map(d => `
+          <div class="dimension" data-key="${d.key}">
+            <div class="dim-icon">${d.icon}</div><div class="dim-info"><div class="dim-label">${d.label}</div><div class="dim-question">${d.question}</div></div>
+            <div class="dim-slider"><input type="range" min="1" max="10" value="${chainScores[d.key]}" class="score-slider" data-key="${d.key}"><span class="dim-value">${chainScores[d.key]}</span></div>
+          </div>`).join('');
+        document.querySelectorAll('.score-slider').forEach(s => s.addEventListener('input', e => {
+          const key = e.target.dataset.key;
+          chainScores[key] = parseInt(e.target.value);
+          e.target.closest('.dimension').querySelector('.dim-value').textContent = chainScores[key];
+          renderChainVisual(); saveChainState();
+        }));
+      }
+
+      function renderChainVisual() {
+        const scores = dimensions.map(d => chainScores[d.key]);
+        const min = Math.min(...scores);
+        document.getElementById('chainVisual').innerHTML = dimensions.map((d,i) => {
+          const score = chainScores[d.key];
+          const isWeak = score===min && score<7;
+          const color = isWeak ? '#c0392b' : (score>=7?'#6a994e':'#c7a86b');
+          const link = `<div class="chain-link"><div class="link-bar" style="width:${score*10}%; background:${color};"></div><div class="link-label">${d.label} (${score})</div></div>`;
+          return i<dimensions.length-1 ? link+'<div class="link-connector"></div>' : link;
+        }).join('');
+      }
+
+      function diagnose() {
+        const behavior = document.getElementById('chainBehaviorInput').value.trim() || '该行为';
+        const scores = dimensions.map(d => chainScores[d.key]);
+        const min = Math.min(...scores);
+        const weak = dimensions.filter(d => chainScores[d.key]===min);
+        const box = document.getElementById('resultBox');
+        if (min >= 7) {
+          document.getElementById('resultTitle').textContent = '✅ 能力链很强';
+          document.getElementById('resultDesc').textContent = `“${behavior}”对你似乎不难，可重点关注动机和提示。`;
+          document.getElementById('suggestionList').innerHTML = '<li>用微习惯配方设计具体执行方案</li><li>确保有明确的锚点提示</li>';
+        } else {
+          document.getElementById('resultTitle').textContent = `⚠️ 最薄弱：${weak[0].label}`;
+          document.getElementById('resultDesc').textContent = `“${behavior}”在“${weak[0].label}”出现瓶颈（${min}/10）。`;
+          document.getElementById('suggestionList').innerHTML = suggestions[weak[0].key].map(s=>`<li>${s}</li>`).join('');
+        }
+        box.classList.add('visible');
+        saveChainState();
+      }
+
+      function saveChainState() {
+        localStorage.setItem('fg_chain', JSON.stringify({scores: chainScores, behavior: document.getElementById('chainBehaviorInput').value}));
+      }
+      function loadChainState() {
+        const saved = localStorage.getItem('fg_chain');
+        if (saved) {
+          try {
+            const data = JSON.parse(saved);
+            if (data.scores) chainScores = {...defaultChainScores, ...data.scores};
+            if (data.behavior) document.getElementById('chainBehaviorInput').value = data.behavior;
+          } catch(e){}
+        }
+      }
+
+      document.getElementById('diagnoseBtn').addEventListener('click', diagnose);
+      document.getElementById('goToStep4').addEventListener('click', () => goToStep(4));
+
+      // ---------- 步骤4：微习惯配方（UI优化版）----------
+      const anchorsByCategory = {
+        morning: ["睁开眼睛","双脚踩到地板","刷完牙","洗完脸","倒好第一杯水","铺好床","穿好衣服"],
+        midday: ["吃完午餐","洗完碗","午休结束","打开电脑","喝完下午茶"],
+        evening: ["吃完晚饭","放下手机","换上睡衣","刷完牙","躺在床上","关灯"],
+        commute: ["坐进车里","系上安全带","上地铁","下地铁","走进公司大楼"],
+        work: ["坐到办公桌前","打开邮箱","完成一个番茄钟","开会之前","下班打卡"],
+        other: ["收到一条微信","打开冰箱","拿起遥控器","开始充电"]
+      };
+      let recipes = [];
+
+      function populateAnchors() {
+        const cat = document.getElementById('anchorCategory').value;
+        const anchors = anchorsByCategory[cat] || [];
+        document.getElementById('anchorSelect').innerHTML = anchors.map(a => `<option>${a}</option>`).join('');
+      }
+      document.getElementById('anchorCategory').addEventListener('change', populateAnchors);
+
+      document.getElementById('celebrationOptions').addEventListener('click', e => {
+        const opt = e.target.closest('.radio-option');
+        if (!opt) return;
+        document.querySelectorAll('#celebrationOptions .radio-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
+
+      function populateRecipeChips() {
+        const golds = behaviors.filter(b => b.impact>=THRESHOLD && b.feasibility>=THRESHOLD);
+        const div = document.getElementById('recipeChips');
+        div.innerHTML = golds.length ? golds.map(b => `<span class="golden-chip" data-behavior="${escapeHtml(b.text)}">${escapeHtml(b.text)}</span>`).join('') : '<span style="color:#b7a78a;">暂无黄金行为</span>';
+        document.querySelectorAll('#recipeChips .golden-chip').forEach(chip => chip.addEventListener('click', () => {
+          document.getElementById('tinyBehavior').value = chip.dataset.behavior;
+        }));
+      }
+
+      function showAbilityHint() {
+        const hintDiv = document.getElementById('abilitySuggestionHint');
+        const chainBehavior = document.getElementById('chainBehaviorInput').value.trim();
+        const saved = localStorage.getItem('fg_chain');
+        if (saved && chainBehavior) {
+          try {
+            const data = JSON.parse(saved);
+            const scores = data.scores;
+            if (scores) {
+              const min = Math.min(...dimensions.map(d => scores[d.key]||5));
+              if (min < 7) {
+                const weak = dimensions.filter(d => scores[d.key]===min)[0];
+                hintDiv.innerHTML = `💡 能力链诊断：“<b>${chainBehavior}</b>”在<b>${weak.label}</b>方面最薄弱，建议缩小规模或降低难度。`;
+                return;
+              }
+            }
+          } catch(e){}
+        }
+        hintDiv.innerHTML = '';
+      }
+
+      function generateRecipe() {
+        const anchor = document.getElementById('customAnchor').value.trim() || document.getElementById('anchorSelect').value;
+        const behavior = document.getElementById('tinyBehavior').value.trim();
+        const celebration = document.getElementById('customCelebration').value.trim() || (document.querySelector('#celebrationOptions .radio-option.selected')?.dataset.value || '');
+        if (!anchor || !behavior) { alert('请填写锚点和微行为'); return; }
+        const text = `在我 <b>${anchor}</b> 之后，我会 <b>${behavior}</b>，然后立即 <b>${celebration}</b>。`;
+        recipes.push({ id: Date.now().toString(), anchor, behavior, celebration, text });
+        saveRecipes(); renderRecipes();
+        document.getElementById('tinyBehavior').value = ''; document.getElementById('customAnchor').value = ''; document.getElementById('customCelebration').value = '';
+        document.querySelectorAll('#celebrationOptions .radio-option').forEach(o => o.classList.remove('selected'));
+        document.querySelector('#celebrationOptions .radio-option[data-value="对自己说‘我真棒！’"]').classList.add('selected');
+      }
+
+      function renderRecipes() {
+        const div = document.getElementById('recipeList');
+        div.innerHTML = recipes.length ? recipes.map(r => `<div class="recipe-item"><div class="recipe-text">${r.text}</div><button class="delete-btn" data-id="${r.id}">✕</button></div>`).join('') : '<p style="color:#b7a78a; text-align:center; padding:0.5rem;">还没有配方，来创建第一个吧！</p>';
+        document.querySelectorAll('#recipeList .delete-btn').forEach(btn => btn.addEventListener('click', e => {
+          recipes = recipes.filter(r => r.id !== e.target.dataset.id); saveRecipes(); renderRecipes();
+        }));
+      }
+      function saveRecipes() { localStorage.setItem('fg_recipes', JSON.stringify(recipes)); }
+      function loadRecipes() { try { const s = localStorage.getItem('fg_recipes'); if(s) recipes = JSON.parse(s); } catch(e){} }
+
+      document.getElementById('generateRecipeBtn').addEventListener('click', generateRecipe);
+      document.getElementById('clearRecipesBtn').addEventListener('click', () => { if(recipes.length && confirm('清空？')) { recipes=[]; saveRecipes(); renderRecipes(); } });
+
+      // 初始化
+      loadBehaviors();
+      loadChainState();
+      loadRecipes();
+      populateAnchors();
+      renderChainDimensions();
+      renderChainVisual();
+      renderLists();
+      drawFocusMap();
+      goToStep(1);
+    })();
+  </script>
+</body>
+</html>
